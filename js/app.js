@@ -213,92 +213,146 @@ function handleOptionClick(option, clickedBtn) {
 }
 
 function showLocationShared() {
-  // Simulate getting user location (use mock location for demo)
-  userLocation = {
-    lat: 53.1325 + (Math.random() - 0.5) * 0.05,
-    lng: 23.1688 + (Math.random() - 0.5) * 0.05,
-  };
-
-  // Start help vehicle from PAKA HQ
-  helpVehicleLocation = { ...PAKA_HQ };
-
-  const locationDiv = document.createElement("div");
-  locationDiv.className = "location-shared";
-  locationDiv.innerHTML = `
+  // Show loading state
+  const loadingDiv = document.createElement("div");
+  loadingDiv.className = "location-shared";
+  loadingDiv.innerHTML = `
     <span class="icon">📍</span>
-    <strong>Lokalizacja udostępniona</strong>
+    <strong>Pobieranie lokalizacji...</strong>
     <p style="margin-top: 8px; font-size: 0.85rem; color: #718096;">
-      Białystok, okolice centrum
+      Proszę zaakceptować uprawnienia lokalizacji
     </p>
   `;
-  chatMessages.appendChild(locationDiv);
+  chatMessages.appendChild(loadingDiv);
   scrollToBottom();
 
-  // Move to next step with map
-  const nextStep = conversationFlow[3];
-  setTimeout(() => {
-    showBotMessage(nextStep.bot);
+  // Request real location from browser
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        // Success - got real location
+        userLocation = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
 
-    // Show live tracking map
-    setTimeout(() => {
-      showLiveTrackingMap();
-    }, 500);
+        // Update loading message to success
+        loadingDiv.innerHTML = `
+          <span class="icon">📍</span>
+          <strong>Lokalizacja udostępniona!</strong>
+          <p style="margin-top: 8px; font-size: 0.85rem; color: #718096;">
+            Współrzędne: ${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}
+          </p>
+        `;
 
+        // Start help vehicle from PAKA HQ
+        helpVehicleLocation = { ...PAKA_HQ };
+
+        // Move to next step with map
+        const nextStep = conversationFlow[3];
+        setTimeout(() => {
+          showBotMessage(nextStep.bot);
+
+          // Show live tracking map
+          setTimeout(() => {
+            showLiveTrackingMap();
+          }, 500);
+
+          setTimeout(() => {
+            showOptions(nextStep.options);
+          }, 800);
+        }, 1000);
+        chatStep = 3;
+      },
+      (error) => {
+        // Error or denied - use fallback location (Białystok center)
+        console.log("Geolocation error:", error.message);
+        userLocation = {
+          lat: 53.1325,
+          lng: 23.1688,
+        };
+
+        loadingDiv.innerHTML = `
+          <span class="icon">📍</span>
+          <strong>Lokalizacja ustawiona</strong>
+          <p style="margin-top: 8px; font-size: 0.85rem; color: #718096;">
+            Używamy przybliżonej lokalizacji (Białystok)
+          </p>
+        `;
+
+        helpVehicleLocation = { ...PAKA_HQ };
+
+        const nextStep = conversationFlow[3];
+        setTimeout(() => {
+          showBotMessage(nextStep.bot);
+          setTimeout(() => {
+            showLiveTrackingMap();
+          }, 500);
+          setTimeout(() => {
+            showOptions(nextStep.options);
+          }, 800);
+        }, 1000);
+        chatStep = 3;
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  } else {
+    // Browser doesn't support geolocation
+    userLocation = { lat: 53.1325, lng: 23.1688 };
+    helpVehicleLocation = { ...PAKA_HQ };
+
+    loadingDiv.innerHTML = `
+      <span class="icon">📍</span>
+      <strong>Lokalizacja ustawiona</strong>
+      <p style="margin-top: 8px; font-size: 0.85rem; color: #718096;">
+        Używamy przybliżonej lokalizacji
+      </p>
+    `;
+
+    const nextStep = conversationFlow[3];
     setTimeout(() => {
-      showOptions(nextStep.options);
-    }, 800);
-  }, 1000);
-  chatStep = 3;
+      showBotMessage(nextStep.bot);
+      setTimeout(() => {
+        showLiveTrackingMap();
+      }, 500);
+      setTimeout(() => {
+        showOptions(nextStep.options);
+      }, 800);
+    }, 1000);
+    chatStep = 3;
+  }
 }
+
+// Store map and markers globally for updates
+let trackingMap = null;
+let vehicleMarker = null;
+let routeLine = null;
 
 function showLiveTrackingMap() {
   const mapContainer = document.createElement("div");
   mapContainer.className = "live-map-container";
   mapContainer.id = "liveMapContainer";
 
-  // Create map using Google Maps embed with markers
-  const userLat = userLocation.lat.toFixed(4);
-  const userLng = userLocation.lng.toFixed(4);
-
   mapContainer.innerHTML = `
     <div class="map-header">
       <span class="map-icon">🗺️</span>
       <strong>Śledzenie na żywo</strong>
     </div>
-    <div class="map-wrapper" id="mapWrapper">
-      <iframe
-        id="trackingMapFrame"
-        src="https://www.google.com/maps/embed/v1/directions?key=AIzaSyBFw0Qbyq9zTFTd-tUY6CE-sQOrGn-XXXX&origin=${PAKA_HQ.lat},${PAKA_HQ.lng}&destination=${userLat},${userLng}&mode=driving"
-        width="100%"
-        height="180"
-        style="border:0; border-radius: 8px;"
-        allowfullscreen=""
-        loading="lazy">
-      </iframe>
-      <div class="map-fallback" id="mapFallback">
-        <div class="map-visual">
-          <div class="map-route">
-            <div class="map-point user-point" id="userPoint">
-              <span>📍</span>
-              <small>Ty</small>
-            </div>
-            <div class="map-line" id="mapLine"></div>
-            <div class="map-point vehicle-point" id="vehiclePoint">
-              <span>🚚</span>
-              <small>PAKA</small>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div class="map-wrapper">
+      <div id="leafletMap" style="height: 200px; border-radius: 8px;"></div>
     </div>
     <div class="map-info">
       <div class="eta-box">
         <span class="eta-icon">⏱️</span>
-        <span id="etaText">ETA: 25 min</span>
+        <span id="etaText">ETA: obliczanie...</span>
       </div>
       <div class="distance-box">
         <span class="distance-icon">📏</span>
-        <span id="distanceText">~8 km</span>
+        <span id="distanceText">Dystans: obliczanie...</span>
       </div>
     </div>
   `;
@@ -306,39 +360,194 @@ function showLiveTrackingMap() {
   chatMessages.appendChild(mapContainer);
   scrollToBottom();
 
-  // Start simulating vehicle movement
+  // Initialize Leaflet map after DOM is ready
+  setTimeout(() => {
+    initLeafletMap();
+  }, 100);
+}
+
+function initLeafletMap() {
+  // Calculate center point between user and PAKA
+  const centerLat = (userLocation.lat + PAKA_HQ.lat) / 2;
+  const centerLng = (userLocation.lng + PAKA_HQ.lng) / 2;
+
+  // Create map
+  trackingMap = L.map("leafletMap").setView([centerLat, centerLng], 13);
+
+  // Add OpenStreetMap tiles
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap",
+  }).addTo(trackingMap);
+
+  // Custom icons
+  const userIcon = L.divIcon({
+    className: "custom-marker user-marker",
+    html: '<div style="background: #e53e3e; color: white; padding: 8px; border-radius: 50%; font-size: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">📍</div>',
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+  });
+
+  const vehicleIcon = L.divIcon({
+    className: "custom-marker vehicle-marker",
+    html: '<div style="background: #1a365d; color: white; padding: 8px; border-radius: 50%; font-size: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">🚚</div>',
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+  });
+
+  // Add user marker
+  L.marker([userLocation.lat, userLocation.lng], { icon: userIcon })
+    .addTo(trackingMap)
+    .bindPopup("📍 Twoja lokalizacja");
+
+  // Add vehicle marker (will be animated)
+  vehicleMarker = L.marker([PAKA_HQ.lat, PAKA_HQ.lng], { icon: vehicleIcon })
+    .addTo(trackingMap)
+    .bindPopup("🚚 Pomoc PAKA");
+
+  // Fetch route from OSRM and draw it
+  fetchRouteFromOSRM();
+}
+
+// Store route points for animation
+let routePoints = [];
+let routeDistance = 0;
+let routeDuration = 0;
+
+async function fetchRouteFromOSRM() {
+  const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${PAKA_HQ.lng},${PAKA_HQ.lat};${userLocation.lng},${userLocation.lat}?overview=full&geometries=geojson`;
+
+  try {
+    const response = await fetch(osrmUrl);
+    const data = await response.json();
+
+    if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      
+      // Get route geometry (array of [lng, lat] coordinates)
+      const coordinates = route.geometry.coordinates;
+      
+      // Convert to Leaflet format [lat, lng]
+      routePoints = coordinates.map(coord => [coord[1], coord[0]]);
+      
+      // Get distance (in meters) and duration (in seconds)
+      routeDistance = route.distance / 1000; // Convert to km
+      routeDuration = Math.round(route.duration / 60); // Convert to minutes
+
+      // Draw the route on the map
+      routeLine = L.polyline(routePoints, {
+        color: "#d4a039",
+        weight: 5,
+        opacity: 0.8,
+      }).addTo(trackingMap);
+
+      // Fit map to route bounds
+      trackingMap.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+
+      // Update distance and ETA display
+      document.getElementById("distanceText").textContent = `~${routeDistance.toFixed(1)} km`;
+      document.getElementById("etaText").textContent = `ETA: ${routeDuration} min`;
+
+      // Start vehicle animation along the route
+      startVehicleSimulation();
+    } else {
+      // Fallback to straight line if OSRM fails
+      console.log("OSRM routing failed, using straight line");
+      fallbackToStraightLine();
+    }
+  } catch (error) {
+    console.error("Error fetching route:", error);
+    fallbackToStraightLine();
+  }
+}
+
+function fallbackToStraightLine() {
+  // Draw straight line as fallback
+  routePoints = [
+    [PAKA_HQ.lat, PAKA_HQ.lng],
+    [userLocation.lat, userLocation.lng],
+  ];
+  
+  routeLine = L.polyline(routePoints, {
+    color: "#d4a039",
+    weight: 4,
+    dashArray: "10, 10",
+  }).addTo(trackingMap);
+
+  const bounds = L.latLngBounds(
+    [userLocation.lat, userLocation.lng],
+    [PAKA_HQ.lat, PAKA_HQ.lng]
+  );
+  trackingMap.fitBounds(bounds, { padding: [30, 30] });
+
+  routeDistance = calculateDistance(PAKA_HQ.lat, PAKA_HQ.lng, userLocation.lat, userLocation.lng);
+  routeDuration = Math.round(routeDistance * 3);
+
+  document.getElementById("distanceText").textContent = `~${routeDistance.toFixed(1)} km`;
+  document.getElementById("etaText").textContent = `ETA: ${routeDuration} min`;
+
   startVehicleSimulation();
 }
 
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  // Haversine formula
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 function startVehicleSimulation() {
-  let progress = 0;
-  const totalSteps = 30;
+  if (routePoints.length < 2) return;
+
+  let currentPointIndex = 0;
+  const totalPoints = routePoints.length;
+  
+  // Calculate how many points to skip per interval for smooth animation
+  // We want the animation to complete in about 60 seconds (30 intervals of 2 seconds)
+  const pointsPerStep = Math.max(1, Math.floor(totalPoints / 30));
 
   mapUpdateInterval = setInterval(() => {
-    progress++;
-    const progressPercent = (progress / totalSteps) * 100;
+    currentPointIndex += pointsPerStep;
 
-    // Update vehicle position visually
-    const vehiclePoint = document.getElementById("vehiclePoint");
-    const mapLine = document.getElementById("mapLine");
+    if (currentPointIndex >= totalPoints) {
+      currentPointIndex = totalPoints - 1;
+    }
+
+    const currentPos = routePoints[currentPointIndex];
+
+    // Update vehicle marker position
+    if (vehicleMarker) {
+      vehicleMarker.setLatLng(currentPos);
+    }
+
+    // Update route line to show remaining path
+    if (routeLine && currentPointIndex < totalPoints) {
+      const remainingRoute = routePoints.slice(currentPointIndex);
+      routeLine.setLatLngs(remainingRoute);
+    }
+
+    // Calculate progress percentage
+    const progress = currentPointIndex / totalPoints;
+    
+    // Update ETA and distance
+    const remainingDistance = routeDistance * (1 - progress);
+    const remainingEta = Math.max(1, Math.round(routeDuration * (1 - progress)));
+
     const etaText = document.getElementById("etaText");
     const distanceText = document.getElementById("distanceText");
 
-    if (vehiclePoint && mapLine) {
-      // Move vehicle towards user
-      vehiclePoint.style.left = `${progressPercent}%`;
-      mapLine.style.width = `${100 - progressPercent}%`;
-
-      // Update ETA and distance
-      const remainingMinutes = Math.max(1, Math.round(25 - (progress / totalSteps) * 25));
-      const remainingDistance = Math.max(0.5, (8 - (progress / totalSteps) * 8)).toFixed(1);
-
-      if (etaText) etaText.textContent = `ETA: ${remainingMinutes} min`;
-      if (distanceText) distanceText.textContent = `~${remainingDistance} km`;
-    }
+    if (etaText) etaText.textContent = `ETA: ${remainingEta} min`;
+    if (distanceText) distanceText.textContent = `~${remainingDistance.toFixed(1)} km`;
 
     // Stop when arrived
-    if (progress >= totalSteps) {
+    if (currentPointIndex >= totalPoints - 1) {
       clearInterval(mapUpdateInterval);
       mapUpdateInterval = null;
       if (etaText) etaText.textContent = "Już prawie!";
