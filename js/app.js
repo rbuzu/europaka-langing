@@ -620,6 +620,15 @@ const nav = document.querySelector(".nav");
 if (mobileMenuBtn) {
   mobileMenuBtn.addEventListener("click", () => {
     nav.classList.toggle("active");
+    mobileMenuBtn.classList.toggle("active");
+  });
+
+  // Close menu when clicking a nav link
+  document.querySelectorAll(".nav-list a").forEach((link) => {
+    link.addEventListener("click", () => {
+      nav.classList.remove("active");
+      mobileMenuBtn.classList.remove("active");
+    });
   });
 }
 
